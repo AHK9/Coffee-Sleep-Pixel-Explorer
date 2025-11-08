@@ -13,7 +13,7 @@ function getChartDimensions() {
 let { width, height } = getChartDimensions();
 let currentMetric = 'coffee';
 let currentCountry = 'all';
-let currentView = 'distribution';
+let currentView = 'distribution'; // NEW: track current view (matches your HTML)
 let data = [];
 let svg;
 
@@ -89,6 +89,16 @@ function updateLegend() {
         });
 }
 
+// Group data by country
+function groupByCountry(filteredData) {
+    const grouped = d3.group(filteredData, d => d.country);
+    return Array.from(grouped, ([country, values]) => ({
+        group: country,
+        values,
+        count: values.length
+    }));
+}
+
 // Group data by age ranges
 function groupByAge(filteredData) {
     const ageRanges = [
@@ -109,28 +119,73 @@ function groupByAge(filteredData) {
     }).filter(d => d.count > 0);
 }
 
-// Update visualization
-function updateViz() {
-    const filteredData = currentCountry === 'all'
-        ? data
-        : data.filter(d => d.country === currentCountry);
+// BAR CHART VIEW
+function renderBarView(filteredData, grouped) {
+    // Scales - vertical bars
+    const xScale = d3.scaleBand()
+        .domain(grouped.map(d => d.group))
+        .range([0, width])
+        .padding(0.2);
 
-    // Group by age
-    const grouped = groupByAge(filteredData);
+    const maxCount = d3.max(grouped, d => d.count);
+    const yScale = d3.scaleLinear()
+        .domain([0, maxCount])
+        .range([height, 0]);
 
-    // Update stats
-    const avg = d3.mean(filteredData, d => d[currentMetric]);
+    // Calculate pixel positions - stack vertically
+    const pixels = [];
+    grouped.forEach(group => {
+        const barWidth = xScale.bandwidth();
+        const pixelsPerRow = Math.floor(barWidth / (pixelSize * 1.5));
+
+        group.values.forEach((person, i) => {
+            const row = Math.floor(i / pixelsPerRow);
+            const col = i % pixelsPerRow;
+            pixels.push({
+                ...person,
+                x: xScale(group.group) + col * pixelSize * 1.5 + pixelSize,
+                y: height - row * pixelSize * 1.5 - pixelSize
+            });
+        });
+    });
+
+    // Render pixels
+    renderPixels(pixels);
+
+    // Axes
+    svg.append('g')
+        .attr('class', 'x-axis')
+        .attr('transform', `translate(0,${height})`)
+        .call(d3.axisBottom(xScale))
+        .selectAll('text')
+        .attr('transform', 'rotate(-45)')
+        .style('text-anchor', 'end')
+        .style('font-size', '12px');
+
+    svg.append('g')
+        .attr('class', 'y-axis')
+        .call(d3.axisLeft(yScale).ticks(5));
+
+    svg.append('text')
+        .attr('class', 'axis-label')
+        .attr('x', width / 2)
+        .attr('y', height + 60)
+        .attr('text-anchor', 'middle')
+        .text('Country');
+
+    svg.append('text')
+        .attr('class', 'axis-label')
+        .attr('transform', 'rotate(-90)')
+        .attr('x', -height / 2)
+        .attr('y', -60)
+        .attr('text-anchor', 'middle')
+        .text('Number of People');
+}
+
+// SCATTER PLOT VIEW
+function renderScatterView(filteredData, grouped) {
     const metricNames = {coffee: 'Coffee Intake', sleep: 'Sleep Hours', caffeine: 'Caffeine'};
     const units = {coffee: 'cups', sleep: 'hours', caffeine: 'mg'};
-
-    const viewType = currentCountry === 'all' ? 'All Countries' : currentCountry;
-    d3.select('#stats').html(
-        `<strong>${viewType}</strong> | Showing <strong>${filteredData.length}</strong> people | 
-        Average ${metricNames[currentMetric]}: <strong>${avg.toFixed(2)} ${units[currentMetric]}</strong>`
-    );
-
-    // Update legend colors
-    updateLegend();
 
     // Scales - X axis for metric values, Y axis for age groups
     const xExtent = d3.extent(filteredData, d => d[currentMetric]);
@@ -169,7 +224,39 @@ function updateViz() {
         });
     });
 
-    // Bind data
+    // Render pixels
+    renderPixels(pixels);
+
+    // Axes
+    svg.append('g')
+        .attr('class', 'x-axis')
+        .attr('transform', `translate(0,${height})`)
+        .call(d3.axisBottom(xScale).ticks(8));
+
+    svg.append('g')
+        .attr('class', 'y-axis')
+        .call(d3.axisLeft(yScale))
+        .selectAll('text')
+        .style('font-size', '12px');
+
+    svg.append('text')
+        .attr('class', 'axis-label')
+        .attr('x', width / 2)
+        .attr('y', height + 50)
+        .attr('text-anchor', 'middle')
+        .text(`${metricNames[currentMetric]} (${units[currentMetric]})`);
+
+    svg.append('text')
+        .attr('class', 'axis-label')
+        .attr('transform', 'rotate(-90)')
+        .attr('x', -height / 2)
+        .attr('y', -60)
+        .attr('text-anchor', 'middle')
+        .text('Age Group');
+}
+
+// Common pixel rendering function
+function renderPixels(pixels) {
     const circles = svg.selectAll('circle')
         .data(pixels, d => d.id);
 
@@ -225,40 +312,44 @@ function updateViz() {
         .attr('r', 0)
         .attr('opacity', 0)
         .remove();
+}
 
-    // Update axes
+// Update visualization
+function updateViz() {
+    const filteredData = currentCountry === 'all'
+        ? data
+        : data.filter(d => d.country === currentCountry);
+
+    // Group differently based on view
+    const grouped = currentView === 'distribution'
+        ? groupByCountry(filteredData)
+        : groupByAge(filteredData);
+
+    // Update stats
+    const avg = d3.mean(filteredData, d => d[currentMetric]);
+    const metricNames = {coffee: 'Coffee Intake', sleep: 'Sleep Hours', caffeine: 'Caffeine'};
+    const units = {coffee: 'cups', sleep: 'hours', caffeine: 'mg'};
+
+    const viewType = currentCountry === 'all' ? 'All Countries' : currentCountry;
+    d3.select('#stats').html(
+        `<strong>${viewType}</strong> | Showing <strong>${filteredData.length}</strong> people | 
+        Average ${metricNames[currentMetric]}: <strong>${avg.toFixed(2)} ${units[currentMetric]}</strong>`
+    );
+
+    // Update legend colors
+    updateLegend();
+
+    // Clear axes
     svg.selectAll('.x-axis').remove();
     svg.selectAll('.y-axis').remove();
     svg.selectAll('.axis-label').remove();
 
-    // X-axis (metric values)
-    svg.append('g')
-        .attr('class', 'x-axis')
-        .attr('transform', `translate(0,${height})`)
-        .call(d3.axisBottom(xScale).ticks(8));
-
-    // Y-axis (age groups)
-    svg.append('g')
-        .attr('class', 'y-axis')
-        .call(d3.axisLeft(yScale))
-        .selectAll('text')
-        .style('font-size', '12px');
-
-    // Axis labels
-    svg.append('text')
-        .attr('class', 'axis-label')
-        .attr('x', width / 2)
-        .attr('y', height + 50)
-        .attr('text-anchor', 'middle')
-        .text(`${metricNames[currentMetric]} (${units[currentMetric]})`);
-
-    svg.append('text')
-        .attr('class', 'axis-label')
-        .attr('transform', 'rotate(-90)')
-        .attr('x', -height / 2)
-        .attr('y', -60)
-        .attr('text-anchor', 'middle')
-        .text('Age Group');
+    // Render based on current view
+    if (currentView === 'distribution') {
+        renderBarView(filteredData, grouped);
+    } else if (currentView === 'metric') {
+        renderScatterView(filteredData, grouped);
+    }
 }
 
 // Initialize visualization after data loads
@@ -287,6 +378,8 @@ function initializeVisualization(loadedData) {
         currentCountry = this.value;
         updateViz();
     });
+
+    // NEW: View toggle buttons
     d3.selectAll('.view-btn').on('click', function() {
         d3.selectAll('.view-btn').classed('active', false);
         d3.select(this).classed('active', true);
