@@ -78,6 +78,23 @@ button.active {
     color: white;
 }
 
+/* View mode buttons - minimal addition */
+.view-btn {
+    border-color: #2c5f2d;
+    color: #2c5f2d;
+}
+
+.view-btn:hover {
+    background: #2c5f2d;
+    color: white;
+    box-shadow: 0 4px 12px rgba(44, 95, 45, 0.4);
+}
+
+.view-btn.active {
+    background: #2c5f2d;
+    color: white;
+}
+
 select {
     padding: 10px 16px;
     font-size: 16px;
